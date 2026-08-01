@@ -3,11 +3,13 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_ollama import ChatOllama, OllamaEmbeddings
 from langchain_community.vectorstores import Chroma
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.chains import create_history_aware_retriever, create_retrieval_chain
-from langchain.chains.combine_documents import create_stuff_documents_chain
-from crawler import crawl_website, log  # import logging from crawler
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_classic.chains import create_history_aware_retriever, create_retrieval_chain
+from langchain_classic.chains.combine_documents import create_stuff_documents_chain
+from crawler import crawl_website, log 
 import time 
+from langchain_elasticsearch import ElasticsearchStore
+
 
 def build_vectorstore_from_url(url, persist_dir="D:/chroma_website_db"):
     t0 = time.time()
@@ -27,16 +29,15 @@ def build_vectorstore_from_url(url, persist_dir="D:/chroma_website_db"):
     log("STEP 3: Creating embeddings")
     t2 = time.time()
     embeddings = OllamaEmbeddings(model="nomic-embed-text")
-    vectorstore = Chroma.from_documents(
-        documents=chunks,
-        embedding=embeddings,
-        persist_directory=persist_dir
+    vectorstore = ElasticsearchStore(
+        es_url="http://localhost:9200",
+        index_name="my_rag_index",
+        embedding=embeddings
     )
     log(f"Embedding & storage took {time.time()-t2:.2f}s")
     return vectorstore
 
 def get_retriever_chain(vectorstore):
-    """Creates a history-aware retriever chain."""
     llm = ChatOllama(model="gemma2:2b", temperature=0)
     retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
 
@@ -49,7 +50,6 @@ def get_retriever_chain(vectorstore):
     return create_history_aware_retriever(llm, retriever, prompt)
 
 def get_conversational_rag_chain(retriever_chain):
-    """Creates the full conversational RAG chain."""
     llm = ChatOllama(model="gemma2:2b", temperature=0)
 
     prompt = ChatPromptTemplate.from_messages([
