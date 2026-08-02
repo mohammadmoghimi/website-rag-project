@@ -9,7 +9,7 @@ from langchain_classic.chains.combine_documents import create_stuff_documents_ch
 from crawler import crawl_website, log 
 import time 
 from langchain_elasticsearch import ElasticsearchStore
-
+from retrievers import ElasticsearchHybridRetriever
 
 def build_vectorstore_from_url(url, persist_dir="D:/chroma_website_db"):
     t0 = time.time()
@@ -34,12 +34,21 @@ def build_vectorstore_from_url(url, persist_dir="D:/chroma_website_db"):
         index_name="my_rag_index",
         embedding=embeddings
     )
+    vectorstore.index_name = "my_rag_index"
     log(f"Embedding & storage took {time.time()-t2:.2f}s")
     return vectorstore
 
 def get_retriever_chain(vectorstore):
     llm = ChatOllama(model="gemma2:2b", temperature=0)
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
+
+    es_client = vectorstore.client
+
+    retriever = ElasticsearchHybridRetriever(
+        es_client=es_client,
+        index_name=vectorstore.index_name,
+        embedding_model=vectorstore.embeddings,   
+        k=4
+    )
 
     prompt = ChatPromptTemplate.from_messages([
         MessagesPlaceholder(variable_name="chat_history"),
