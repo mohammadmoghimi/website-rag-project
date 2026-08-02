@@ -6,36 +6,74 @@ from langchain_community.vectorstores import Chroma
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_classic.chains import create_history_aware_retriever, create_retrieval_chain
 from langchain_classic.chains.combine_documents import create_stuff_documents_chain
-from crawler import crawl_website, log 
+from crawler import crawl_website
 import time 
 from langchain_elasticsearch import ElasticsearchStore
 from retrievers import ElasticsearchHybridRetriever
+from elasticsearch import Elasticsearch
 
-def build_vectorstore_from_url(url, persist_dir="D:/chroma_website_db"):
+
+def build_vectorstore_from_url(url):
+    import time
+    print("STEP 1: Crawling website")
     t0 = time.time()
-    log("STEP 1: Crawling website")
-    documents = crawl_website(url, max_pages=30)
-    log(f"Crawling took {time.time()-t0:.2f}s")
+    documents = crawl_website(url, max_pages=15)
+    print(f"Crawling took {time.time()-t0:.2f}s")
 
-    log("STEP 2: Splitting text")
+    print("STEP 2: Splitting text")
     t1 = time.time()
     splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     chunks = splitter.split_documents(documents)
-    log(f"Splitting took {time.time()-t1:.2f}s")
+    print(f"Splitting took {time.time()-t1:.2f}s")
+    print(f"Number of chunks: {len(chunks)}")
 
     if not chunks:
         raise ValueError("No chunks to embed – check crawling step.")
 
-    log("STEP 3: Creating embeddings")
+    print("STEP 3: Creating embeddings and indexing")
     t2 = time.time()
-    embeddings = OllamaEmbeddings(model="nomic-embed-text")
+
+    # ---------- Switch to a tiny model for speed ----------
+    embeddings = OllamaEmbeddings(model="all-minilm")   # 384 dimensions – MUCH faster
+
+    # ---------- Create vectorstore (no data yet) ----------
     vectorstore = ElasticsearchStore(
         es_url="http://localhost:9200",
         index_name="my_rag_index",
-        embedding=embeddings
+        embedding=embeddings,
     )
-    vectorstore.index_name = "my_rag_index"
-    log(f"Embedding & storage took {time.time()-t2:.2f}s")
+
+    # ---------- Batch indexing (10 chunks at a time) ----------
+    batch_size = 10
+    total_batches = (len(chunks) + batch_size - 1) // batch_size
+
+    for batch_idx in range(total_batches):
+        start = batch_idx * batch_size
+        end = min(start + batch_size, len(chunks))
+        batch = chunks[start:end]
+        
+        texts = [chunk.page_content for chunk in batch]
+        metadatas = [chunk.metadata for chunk in batch]
+        
+        print(f"  📦 Indexing batch {batch_idx+1}/{total_batches} ({len(batch)} chunks)...")
+        batch_start = time.time()
+        
+        try:
+            vectorstore.add_texts(
+                texts=texts,
+                metadatas=metadatas,
+                refresh=False          # <<< disable auto-refresh for speed
+            )
+            print(f"    ✅ Batch done in {time.time()-batch_start:.2f}s")
+        except Exception as e:
+            print(f"    ❌ Error: {e}")
+            raise
+
+    # ---------- Final refresh to make documents searchable ----------
+    es = Elasticsearch("http://localhost:9200")
+    es.indices.refresh(index="my_rag_index")
+    print(f"✅ All chunks indexed in {time.time()-t2:.2f}s")
+
     return vectorstore
 
 def get_retriever_chain(vectorstore):
@@ -45,7 +83,7 @@ def get_retriever_chain(vectorstore):
 
     retriever = ElasticsearchHybridRetriever(
         es_client=es_client,
-        index_name=vectorstore.index_name,
+        index_name="my_rag_index",
         embedding_model=vectorstore.embeddings,   
         k=4
     )
@@ -80,10 +118,10 @@ Context:
 
 def get_response(rag_chain, user_input, chat_history):
     t0 = time.time()
-    log("STEP 4: Retrieving")
+    print("STEP 4: Retrieving")
     response = rag_chain.invoke({
         "chat_history": chat_history,
         "input": user_input
     })
-    log(f"RAG chain invoke took {time.time()-t0:.2f}s")
+    print(f"RAG chain invoke took {time.time()-t0:.2f}s")
     return response["answer"]

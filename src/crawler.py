@@ -9,20 +9,7 @@ from bs4 import BeautifulSoup
 from langchain_core.documents import Document   # <-- CORRECT IMPORT
 import streamlit as st
 
-# ------------------------------
-# Logging
-# ------------------------------
-def log(message):
-    print(message)
-    if "logs" not in st.session_state:
-        st.session_state.logs = []
-    st.session_state.logs.append(message)
-
-# ------------------------------
-# URL normalisation
-# ------------------------------
 def normalize_url(url):
-    """Remove fragments, enforce scheme, lower domain, strip trailing slash."""
     url = urldefrag(url)[0]
     parsed = urlparse(url)
     path = parsed.path.rstrip('/') or '/'
@@ -33,9 +20,6 @@ def normalize_url(url):
     ).geturl()
     return normalized
 
-# ------------------------------
-# Robots.txt parser (cached per domain)
-# ------------------------------
 _robot_cache = {}
 
 def can_fetch(url, user_agent="Mozilla/5.0"):
@@ -54,14 +38,11 @@ def can_fetch(url, user_agent="Mozilla/5.0"):
         return True
     return rp.can_fetch(user_agent, url)
 
-# ------------------------------
-# Crawler class
-# ------------------------------
 class WebsiteCrawler:
     def __init__(
         self,
         start_url,
-        max_pages=30,
+        max_pages=15,
         concurrent_workers=5,
         delay=0.5,
         timeout=10,
@@ -96,7 +77,7 @@ class WebsiteCrawler:
     def fetch_and_parse(self, url):
         try:
             if not can_fetch(url):
-                log(f"Skipped (robots.txt): {url}")
+                print(f"Skipped (robots.txt): {url}")
                 return None, []
 
             time.sleep(self.delay)
@@ -105,14 +86,20 @@ class WebsiteCrawler:
             response.raise_for_status()
             html = response.text
 
-            doc = Document(page_content=html, metadata={"source": url})
-            log(f"Fetched: {url} (size: {len(html)} bytes)")
-
-            # Use lxml if available, else fallback to html.parser
             try:
                 soup = BeautifulSoup(html, "lxml")
             except:
                 soup = BeautifulSoup(html, "html.parser")
+
+            
+            for script in soup(["script", "style"]):
+                script.decompose()
+
+            clean_text = soup.get_text(separator=" ", strip=True)
+
+            doc = Document(page_content=clean_text, metadata={"source": url})
+            print(f"Fetched: {url} (HTML: {len(html)} bytes, clean text: {len(clean_text)} chars)")
+
 
             links = []
             for a in soup.find_all("a", href=True):
@@ -130,11 +117,11 @@ class WebsiteCrawler:
             return doc, links
 
         except Exception as e:
-            log(f"Error fetching {url}: {e}")
+            print(f"Error fetching {url}: {e}")
             return None, []
 
     def crawl(self):
-        log(f"Starting crawl of {self.start_url} (max {self.max_pages} pages)")
+        print(f"Starting crawl of {self.start_url} (max {self.max_pages} pages)")
 
         with ThreadPoolExecutor(max_workers=self.concurrent_workers) as executor:
             futures = {executor.submit(self.fetch_and_parse, self.start_url): self.start_url}
@@ -146,7 +133,7 @@ class WebsiteCrawler:
                     if doc is not None:
                         self.documents.append(doc)
                         self.page_count += 1
-                        log(f"Page {self.page_count}/{self.max_pages} processed: {url}")
+                        print(f"Page {self.page_count}/{self.max_pages} processed: {url}")
 
                         for link in links:
                             if link not in self.visited:
@@ -163,12 +150,10 @@ class WebsiteCrawler:
                             f.cancel()
                         break
 
-        log(f"Crawled {self.page_count} pages. Total documents: {len(self.documents)}")
+        print(f"Crawled {self.page_count} pages. Total documents: {len(self.documents)}")
         return self.documents
 
-# ------------------------------
-# Backwards‑compatible function
-# ------------------------------
-def crawl_website(start_url, max_pages=30, **kwargs):
+
+def crawl_website(start_url, max_pages=15, **kwargs):
     crawler = WebsiteCrawler(start_url, max_pages=max_pages, **kwargs)
     return crawler.crawl()
