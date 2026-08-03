@@ -6,7 +6,7 @@ from urllib.parse import urljoin, urlparse, urldefrag
 from urllib.robotparser import RobotFileParser
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from bs4 import BeautifulSoup
-from langchain_core.documents import Document   # <-- CORRECT IMPORT
+from langchain_core.documents import Document 
 import streamlit as st
 
 def normalize_url(url):
@@ -91,14 +91,8 @@ class WebsiteCrawler:
             except:
                 soup = BeautifulSoup(html, "html.parser")
 
-            
-            for script in soup(["script", "style"]):
-                script.decompose()
-
-            clean_text = soup.get_text(separator=" ", strip=True)
-
-            doc = Document(page_content=clean_text, metadata={"source": url})
-            print(f"Fetched: {url} (HTML: {len(html)} bytes, clean text: {len(clean_text)} chars)")
+            doc = Document(page_content=html, metadata={"source": url})
+            print(f"Fetched: {url} (HTML: {len(html)} bytes, clean text: {len(html)} chars)")
 
 
             links = []

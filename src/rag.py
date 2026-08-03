@@ -1,8 +1,5 @@
-import os
-from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_ollama import ChatOllama, OllamaEmbeddings
-from langchain_community.vectorstores import Chroma
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_classic.chains import create_history_aware_retriever, create_retrieval_chain
 from langchain_classic.chains.combine_documents import create_stuff_documents_chain
@@ -11,18 +8,26 @@ import time
 from langchain_elasticsearch import ElasticsearchStore
 from retrievers import ElasticsearchHybridRetriever
 from elasticsearch import Elasticsearch
+from utils import extract_main_text
+import os
 
+os.environ['NO_PROXY'] = 'localhost,127.0.0.1'
+os.environ['no_proxy'] = 'localhost,127.0.0.1'
 
 def build_vectorstore_from_url(url):
-    import time
     print("STEP 1: Crawling website")
     t0 = time.time()
     documents = crawl_website(url, max_pages=15)
     print(f"Crawling took {time.time()-t0:.2f}s")
 
+    print("STEP 1.5: Extracting main text from HTML...")
+    for i, doc in enumerate(documents, 1):
+        print(f"  Cleaning document {i}/{len(documents)}...")
+        doc.page_content = extract_main_text(doc.page_content)
+
     print("STEP 2: Splitting text")
     t1 = time.time()
-    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
     chunks = splitter.split_documents(documents)
     print(f"Splitting took {time.time()-t1:.2f}s")
     print(f"Number of chunks: {len(chunks)}")
@@ -33,17 +38,14 @@ def build_vectorstore_from_url(url):
     print("STEP 3: Creating embeddings and indexing")
     t2 = time.time()
 
-    # ---------- Switch to a tiny model for speed ----------
-    embeddings = OllamaEmbeddings(model="all-minilm")   # 384 dimensions – MUCH faster
+    embeddings = OllamaEmbeddings(model="all-minilm") 
 
-    # ---------- Create vectorstore (no data yet) ----------
     vectorstore = ElasticsearchStore(
         es_url="http://localhost:9200",
         index_name="my_rag_index",
         embedding=embeddings,
     )
 
-    # ---------- Batch indexing (10 chunks at a time) ----------
     batch_size = 10
     total_batches = (len(chunks) + batch_size - 1) // batch_size
 
@@ -55,21 +57,20 @@ def build_vectorstore_from_url(url):
         texts = [chunk.page_content for chunk in batch]
         metadatas = [chunk.metadata for chunk in batch]
         
-        print(f"  📦 Indexing batch {batch_idx+1}/{total_batches} ({len(batch)} chunks)...")
+        print(f" Indexing batch {batch_idx+1}/{total_batches} ({len(batch)} chunks)...")
         batch_start = time.time()
         
         try:
             vectorstore.add_texts(
                 texts=texts,
                 metadatas=metadatas,
-                refresh=False          # <<< disable auto-refresh for speed
+                refresh=False    
             )
             print(f"    ✅ Batch done in {time.time()-batch_start:.2f}s")
         except Exception as e:
             print(f"    ❌ Error: {e}")
             raise
 
-    # ---------- Final refresh to make documents searchable ----------
     es = Elasticsearch("http://localhost:9200")
     es.indices.refresh(index="my_rag_index")
     print(f"✅ All chunks indexed in {time.time()-t2:.2f}s")
@@ -77,7 +78,7 @@ def build_vectorstore_from_url(url):
     return vectorstore
 
 def get_retriever_chain(vectorstore):
-    llm = ChatOllama(model="gemma2:2b", temperature=0)
+    llm = ChatOllama(model="llama3.2:1b", temperature=0)
 
     es_client = vectorstore.client
 
@@ -97,7 +98,7 @@ def get_retriever_chain(vectorstore):
     return create_history_aware_retriever(llm, retriever, prompt)
 
 def get_conversational_rag_chain(retriever_chain):
-    llm = ChatOllama(model="gemma2:2b", temperature=0)
+    llm = ChatOllama(model="llama3.2:1b", temperature=0)
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", """
@@ -125,3 +126,4 @@ def get_response(rag_chain, user_input, chat_history):
     })
     print(f"RAG chain invoke took {time.time()-t0:.2f}s")
     return response["answer"]
+
