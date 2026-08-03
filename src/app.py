@@ -1,29 +1,23 @@
 import os
 import streamlit as st
-from crawler import log
 from rag import build_vectorstore_from_url, get_retriever_chain, get_conversational_rag_chain, get_response
 from langchain_core.messages import AIMessage, HumanMessage
-
+from utils import get_index_name_from_url
 os.environ['NO_PROXY'] = 'localhost,127.0.0.1'
 os.environ['no_proxy'] = 'localhost,127.0.0.1'
 
 st.set_page_config(page_title="Chat With Websites")
 st.title(" Chat With Websites")
 
-# Sidebar: settings and logs
 with st.sidebar:
     st.header("Settings")
     website_url = st.text_input("Website URL")
     st.divider()
-    st.subheader("Logs")
-    if "logs" in st.session_state:
-        for item in st.session_state.logs[-20:]:
-            st.text(item)
+
 
 if not website_url:
     st.info("Enter a website URL")
 else:
-    # Initialise chat history if missing
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = [
             AIMessage(content="Hello! Ask me anything about the website.")
@@ -32,16 +26,14 @@ else:
     if "indexed_url" not in st.session_state:
         st.session_state.indexed_url = None
 
-    # Build/rebuild vector store if URL changed
     if website_url != st.session_state.indexed_url:
         with st.spinner("Building knowledge base..."):
-            # Reset chat history for new website
             st.session_state.chat_history = [
                 AIMessage(content=f"Hello! Ask me anything about {website_url}")
             ]
 
-            # Build vector store and RAG chain
             vector_store = build_vectorstore_from_url(website_url)
+
             retriever_chain = get_retriever_chain(vector_store)
             st.session_state.rag_chain = get_conversational_rag_chain(retriever_chain)
 

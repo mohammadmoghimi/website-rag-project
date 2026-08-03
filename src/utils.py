@@ -1,5 +1,7 @@
+import re
 from bs4 import BeautifulSoup
 import trafilatura
+from urllib.parse import urlparse
 
 def extract_main_text(html: str) -> str:
 
@@ -25,3 +27,8 @@ def extract_main_text(html: str) -> str:
 
     text = soup.get_text(separator=" ", strip=True)
     return text if text else "No content extracted."
+
+def get_index_name_from_url(url):
+    domain = urlparse(url).netloc
+    safe = re.sub(r'[^a-zA-Z0-9]', '_', domain)
+    return f"rag_{safe}"

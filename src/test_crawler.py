@@ -1,6 +1,7 @@
 from crawler import crawl_website
 
-url = "https://www.mit.edu/"  # simple, fast site
+url = "https://www.roadto1000goals.com/" 
+# url = "https://www.mit.edu/" 
 docs = crawl_website(url, max_pages=15)
 
 print(f"✅ Crawled {len(docs)} documents")

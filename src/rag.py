@@ -8,24 +8,24 @@ import time
 from langchain_elasticsearch import ElasticsearchStore
 from retrievers import ElasticsearchHybridRetriever
 from elasticsearch import Elasticsearch
-from utils import extract_main_text
+from utils import extract_main_text , get_index_name_from_url
 import os
 
 os.environ['NO_PROXY'] = 'localhost,127.0.0.1'
 os.environ['no_proxy'] = 'localhost,127.0.0.1'
 
-def build_vectorstore_from_url(url):
-    print("STEP 1: Crawling website")
+def build_vectorstore_from_url(url , index_name = None):
+    if index_name is None :
+        index_name = get_index_name_from_url(url)
+
     t0 = time.time()
     documents = crawl_website(url, max_pages=15)
     print(f"Crawling took {time.time()-t0:.2f}s")
 
-    print("STEP 1.5: Extracting main text from HTML...")
     for i, doc in enumerate(documents, 1):
         print(f"  Cleaning document {i}/{len(documents)}...")
         doc.page_content = extract_main_text(doc.page_content)
 
-    print("STEP 2: Splitting text")
     t1 = time.time()
     splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
     chunks = splitter.split_documents(documents)
@@ -42,7 +42,7 @@ def build_vectorstore_from_url(url):
 
     vectorstore = ElasticsearchStore(
         es_url="http://localhost:9200",
-        index_name="my_rag_index",
+        index_name=index_name,
         embedding=embeddings,
     )
 
@@ -66,15 +66,17 @@ def build_vectorstore_from_url(url):
                 metadatas=metadatas,
                 refresh=False    
             )
-            print(f"    ✅ Batch done in {time.time()-batch_start:.2f}s")
+            print(f"    Batch done in {time.time()-batch_start:.2f}s")
         except Exception as e:
-            print(f"    ❌ Error: {e}")
+            print(f"   Error: {e}")
             raise
 
     es = Elasticsearch("http://localhost:9200")
-    es.indices.refresh(index="my_rag_index")
-    print(f"✅ All chunks indexed in {time.time()-t2:.2f}s")
+    es.indices.refresh(index=index_name)
+    print(f" All chunks indexed in {time.time()-t2:.2f}s")
 
+
+    vectorstore.custom_index_name = index_name
     return vectorstore
 
 def get_retriever_chain(vectorstore):
@@ -84,7 +86,7 @@ def get_retriever_chain(vectorstore):
 
     retriever = ElasticsearchHybridRetriever(
         es_client=es_client,
-        index_name="my_rag_index",
+        index_name=vectorstore.custom_index_name,
         embedding_model=vectorstore.embeddings,   
         k=4
     )
