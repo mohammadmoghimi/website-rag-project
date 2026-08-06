@@ -8,8 +8,11 @@ import time
 from langchain_elasticsearch import ElasticsearchStore
 from retrievers import ElasticsearchHybridRetriever
 from elasticsearch import Elasticsearch
-from utils import extract_main_text , get_index_name_from_url
+from utils import extract_main_text , get_index_name_from_url , get_llm
 import os
+from langchain_huggingface import HuggingFaceEndpointEmbeddings
+from dotenv import load_dotenv
+
 
 os.environ['NO_PROXY'] = 'localhost,127.0.0.1'
 os.environ['no_proxy'] = 'localhost,127.0.0.1'
@@ -40,13 +43,20 @@ def build_vectorstore_from_url(url , index_name = None):
 
     embeddings = OllamaEmbeddings(model="all-minilm") 
 
+    # load_dotenv()
+
+    # embeddings = HuggingFaceEndpointEmbeddings(
+    #     model="sentence-transformers/all-MiniLM-L6-v2",
+    #     huggingfacehub_api_token=os.getenv("HUGGINGFACE_API_KEY_FINEGRAINED")
+    # )
+
     vectorstore = ElasticsearchStore(
         es_url="http://localhost:9200",
         index_name=index_name,
         embedding=embeddings,
     )
 
-    batch_size = 10
+    batch_size = 5
     total_batches = (len(chunks) + batch_size - 1) // batch_size
 
     for batch_idx in range(total_batches):
@@ -81,6 +91,7 @@ def build_vectorstore_from_url(url , index_name = None):
 
 def get_retriever_chain(vectorstore):
     llm = ChatOllama(model="llama3.2:1b", temperature=0)
+    # llm = get_llm()
 
     es_client = vectorstore.client
 
@@ -101,6 +112,7 @@ def get_retriever_chain(vectorstore):
 
 def get_conversational_rag_chain(retriever_chain):
     llm = ChatOllama(model="llama3.2:1b", temperature=0)
+    # llm = get_llm()
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", """

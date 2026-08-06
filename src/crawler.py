@@ -77,13 +77,16 @@ class WebsiteCrawler:
     def fetch_and_parse(self, url):
         try:
             if not can_fetch(url):
-                print(f"Skipped (robots.txt): {url}")
+                print(f"Blocked by robots.txt: {url}")
                 return None, []
 
             time.sleep(self.delay)
 
             response = self.session.get(url, timeout=self.timeout)
-            response.raise_for_status()
+            if response.status_code != 200:
+                print(f" HTTP {response.status_code} for {url}")
+                return None, []
+
             html = response.text
 
             try:
@@ -92,8 +95,7 @@ class WebsiteCrawler:
                 soup = BeautifulSoup(html, "html.parser")
 
             doc = Document(page_content=html, metadata={"source": url})
-            print(f"Fetched: {url} (HTML: {len(html)} bytes, clean text: {len(html)} chars)")
-
+            print(f"Fetched: {url} (HTML: {len(html)} bytes)")
 
             links = []
             for a in soup.find_all("a", href=True):
@@ -108,14 +110,27 @@ class WebsiteCrawler:
                 ):
                     links.append(normalized)
 
+            if not links:
+                print(f" No internal links found on {url}")
+
             return doc, links
 
+        except requests.exceptions.Timeout:
+            print(f"Timeout fetching {url}")
+            return None, []
+        except requests.exceptions.ConnectionError:
+            print(f" Connection error for {url}")
+            return None, []
         except Exception as e:
-            print(f"Error fetching {url}: {e}")
+            print(f" Error fetching {url}: {e}")
             return None, []
 
     def crawl(self):
         print(f"Starting crawl of {self.start_url} (max {self.max_pages} pages)")
+
+        if not can_fetch(self.start_url):
+            print(f" Start URL blocked by robots.txt: {self.start_url}")
+            return []
 
         with ThreadPoolExecutor(max_workers=self.concurrent_workers) as executor:
             futures = {executor.submit(self.fetch_and_parse, self.start_url): self.start_url}
@@ -127,8 +142,13 @@ class WebsiteCrawler:
                     if doc is not None:
                         self.documents.append(doc)
                         self.page_count += 1
-                        print(f"Page {self.page_count}/{self.max_pages} processed: {url}")
+                        print(f" Page {self.page_count}/{self.max_pages} processed: {url}")
+                    else:
+                        print(f" No document returned for {url}")
 
+                    self.visited.add(url)
+
+                    if doc is not None: 
                         for link in links:
                             if link not in self.visited:
                                 self.queue.append(link)
@@ -137,14 +157,14 @@ class WebsiteCrawler:
                                 else:
                                     break
 
-                    self.visited.add(url)
-
                     if self.page_count >= self.max_pages:
                         for f in futures:
                             f.cancel()
                         break
 
-        print(f"Crawled {self.page_count} pages. Total documents: {len(self.documents)}")
+        if self.page_count == 0:
+            print(" No pages fetched")
+
         return self.documents
 
 

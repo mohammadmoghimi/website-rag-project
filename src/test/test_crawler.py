@@ -1,7 +1,11 @@
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from crawler import crawl_website
 
-url = "https://www.roadto1000goals.com/" 
-# url = "https://www.mit.edu/" 
+
+# url = "https://www.python.org/" 
+url = "https://www.mit.edu/" 
 docs = crawl_website(url, max_pages=15)
 
 print(f"✅ Crawled {len(docs)} documents")

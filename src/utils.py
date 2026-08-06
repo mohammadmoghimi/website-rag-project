@@ -2,6 +2,10 @@ import re
 from bs4 import BeautifulSoup
 import trafilatura
 from urllib.parse import urlparse
+import os
+from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
+
+HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY_FINEGRAINED")
 
 def extract_main_text(html: str) -> str:
 
@@ -32,3 +36,15 @@ def get_index_name_from_url(url):
     domain = urlparse(url).netloc
     safe = re.sub(r'[^a-zA-Z0-9]', '_', domain)
     return f"rag_{safe}"
+
+def get_llm():
+
+    endpoint = HuggingFaceEndpoint(
+        repo_id="deepseek-ai/DeepSeek-V4-Flash-0731", 
+        huggingfacehub_api_token=HUGGINGFACE_API_KEY,
+        task="text-generation",
+        max_new_tokens=512,    
+        temperature=0,         
+        timeout=60,         
+    )
+    return ChatHuggingFace(llm=endpoint)

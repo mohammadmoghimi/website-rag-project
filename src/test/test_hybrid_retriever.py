@@ -3,12 +3,18 @@ from elasticsearch import Elasticsearch
 from langchain_ollama import OllamaEmbeddings
 from langchain_elasticsearch import ElasticsearchStore
 from rag import get_retriever_chain, get_conversational_rag_chain, get_response
+from langchain_huggingface import HuggingFaceEndpointEmbeddings
+import os
 
 # -------------------------------------------------------------
 # 1. Connect to existing Elasticsearch index
 # -------------------------------------------------------------
 print("Connecting to existing Elasticsearch index...")
-embeddings = OllamaEmbeddings(model="all-minilm")
+# embeddings = OllamaEmbeddings(model="all-minilm")
+embeddings = HuggingFaceEndpointEmbeddings(
+    model="BAAI/bge-m3",
+    huggingfacehub_api_token=os.getenv("HUGGINGFACE_API_KEY_FINEGRAINED")
+)
 vectorstore = ElasticsearchStore(
     es_url="http://localhost:9200",
     index_name="my_rag_index",
